@@ -50,5 +50,5 @@ chmod +x upload_images.sh
 cd ..
 tar -cf "$chart_name-mirror.tar" ./$chart_name-mirror && rm -r ./$chart_name-mirror
 
-echo "Transfer $1.tar to your airgapped environment, then upload the helm chart and images (Optionally using upload_images.sh)"
+echo "Transfer $chart_name-mirror.tar to your airgapped environment, then upload the helm chart and images (Optionally using upload_images.sh)"
 echo "== DONE =="
