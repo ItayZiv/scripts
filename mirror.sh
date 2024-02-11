@@ -13,14 +13,16 @@ chart_name=$(echo $1 | tr / -)
 mkdir -p ./$chart_name-mirror
 cd ./$chart_name-mirror
 
-for image in $(cd .. && helm template $1 ${2:+--version $2} ${3:+-f $3} | yq '..|.image? | select(.)' | grep -ve "^---$")
+echo "## Downloading chart images (according to default${3:+/provided ($3)} valuefile) ##"
+
+for image in $(cd .. && helm template ${1:?Chart name is required.} ${2:+--version $2} ${3:+-f $3} | yq '..|.image? | select(.)' | grep -ve "^---$")
 do
   mkdir -p ./images/$image
   echo Downlading $image
   skopeo copy --all ${@:4} docker://$image dir:./images/$image
 done
 
-echo Pulling $1 and dependanceis
+echo "## Pulling chart $1 ##"
 helm pull $1 ${2:+--version $2}
 
 cat << 'EOF' > upload_images.sh
@@ -38,7 +40,7 @@ do
     for image in $(ls ./images/$registry/$repo)
     do
       echo "Uploading $1/$repo/$image ($registry/$repo/$image)"
-      skopeo copy --all ${@:2} dir:./images/$registry/$repo/$image docker://$1/$repo/$image
+      skopeo copy --all ${@:2} dir:./images/$registry/$repo/$image docker://${1:?Destination registry is required.}/$repo/$image
     done
   done
 done
@@ -47,8 +49,25 @@ echo "== DONE =="
 EOF
 chmod +x upload_images.sh
 
+echo "## Checking Downloaded Images ##"
+
+for registry in $(ls ./images)
+do
+  for repo in $(ls ./images/$registry)
+  do
+    for image in $(ls ./images/$registry/$repo)
+    do
+      echo "Checking $registry/$repo/$image"
+      skopeo copy -q --all dir:./images/$registry/$repo/$image dir:./tmp || echo "Failed with $registry/$repo/$image. If you try to upload it to your registry it will *NOT* succeed."
+      rm -r ./tmp || true
+    done
+  done
+done
+
+echo "## Creating tar archive ##"
+
 cd ..
 tar -cf "$chart_name-mirror.tar" ./$chart_name-mirror && rm -r ./$chart_name-mirror
 
-echo "Transfer $chart_name-mirror.tar to your airgapped environment, then upload the helm chart and images (Optionally using upload_images.sh)"
 echo "== DONE =="
+echo "Transfer $chart_name-mirror.tar to your airgapped environment, then upload the helm chart and images (Optionally using upload_images.sh)"
