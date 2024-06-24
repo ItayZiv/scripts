@@ -41,8 +41,8 @@ cat << 'EOF' > upload_images.sh
 
 for image_dir in $(ls ./images)
 do
-  image=$(echo ${image_dir/##} | sed "s|#|/|g")
-  echo "Uploading $1/$image ($image_dir), original registry was ${image_dir/%#}"
+  image=$(echo ${image_dir#*#} | sed "s|#|/|g")
+  echo "Uploading to $1/$image (from images/$image_dir), original registry was ${image_dir%%#*}"
   skopeo copy --all ${@:2} dir:./images/$image_dir docker://${1:?Destination registry is required.}/$image
 done
 
