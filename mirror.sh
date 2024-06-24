@@ -8,6 +8,10 @@
 # (Will only pull images which would actually be used in the coreespoding default/specified values.yaml)
 # Additional parameters will be passed to skopeo (For example --src-tls-verify=false)
 # REQUIRES: Skopeo, Helm, yq
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
 
 chart_name=$(echo $1 | tr / -)
 mkdir -p ./$chart_name-mirror
@@ -15,11 +19,13 @@ cd ./$chart_name-mirror
 
 echo "## Downloading chart images (according to default${3:+/provided ($3)} valuefile) ##"
 
-for image in $(cd .. && helm template ${1:?Chart name is required.} ${2:+--version $2} ${3:+-f $3} | yq '..|.image? | select(.)' | grep -ve "^---$")
+for image in $(cd .. && helm template ${1:?Chart name is required.} ${2:+--version $2} ${3:+-f $3} | yq '..|.image? | select(.)' | grep -ve "^---$" | sort -u)
 do
-  mkdir -p ./images/$image
-  echo Downlading $image
-  skopeo copy --all ${@:4} docker://$image dir:./images/$image
+  resolved_name=$(skopeo inspect docker://$image --format "{{.Name}}")
+  output_dir=$(echo $resolved_name | sed "s|/|#|g")
+  mkdir -p ./images/$output_dir
+  echo "Downlading $image ($resolved_name) to ./images/$output_dir"
+  skopeo copy --all ${@:4} docker://$resolved_name dir:./images/$output_dir
 done
 
 echo "## Pulling chart $1 ##"
@@ -33,16 +39,11 @@ cat << 'EOF' > upload_images.sh
 # Accepts additional args to pass to skopeo (for example --dest-tls-verify=false)
 # REQUIRES: Skopeo
 
-for registry in $(ls ./images)
+for image_dir in $(ls ./images)
 do
-  for repo in $(ls ./images/$registry)
-  do
-    for image in $(ls ./images/$registry/$repo)
-    do
-      echo "Uploading $1/$repo/$image ($registry/$repo/$image)"
-      skopeo copy --all ${@:2} dir:./images/$registry/$repo/$image docker://${1:?Destination registry is required.}/$repo/$image
-    done
-  done
+  image=$(echo ${image_dir/##} | sed "s|#|/|g")
+  echo "Uploading $1/$image ($image_dir), original registry was ${image_dir/%#}"
+  skopeo copy --all ${@:2} dir:./images/$image_dir docker://${1:?Destination registry is required.}/$image
 done
 
 echo "== DONE =="
@@ -51,17 +52,12 @@ chmod +x upload_images.sh
 
 echo "## Checking Downloaded Images ##"
 
-for registry in $(ls ./images)
+for image_dir in $(ls ./images)
 do
-  for repo in $(ls ./images/$registry)
-  do
-    for image in $(ls ./images/$registry/$repo)
-    do
-      echo "Checking $registry/$repo/$image"
-      skopeo copy -q --all dir:./images/$registry/$repo/$image dir:./tmp || echo "Failed with $registry/$repo/$image. If you try to upload it to your registry it will *NOT* succeed."
-      rm -r ./tmp || true
-    done
-  done
+  image=$(echo $image_dir | sed "s|#|/|g")
+  echo "Checking $image (from $image_dir)"
+  skopeo copy -q --all dir:./images/$image_dir dir:./tmp || echo "Failed with $image. If you try to upload it to your registry it will *NOT* succeed."
+  rm -r ./tmp || true
 done
 
 echo "## Creating tar archive ##"
