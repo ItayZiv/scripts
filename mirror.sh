@@ -21,11 +21,11 @@ echo "## Downloading chart images (according to default${3:+/provided ($3)} valu
 
 for image in $(cd .. && helm template ${1:?Chart name is required.} ${2:+--version $2} ${3:+-f $3} | yq '..|.image? | select(.)' | grep -ve "^---$" | sort -u)
 do
-  resolved_name=$(skopeo inspect docker://$image --format "{{.Name}}")
+  resolved_name=$(skopeo inspect docker://$image --format "{{.Name}}@{{.Digest}}")
   output_dir=$(echo $resolved_name | sed "s|/|#|g")
   mkdir -p ./images/$output_dir
   echo "Downlading $image ($resolved_name) to ./images/$output_dir"
-  skopeo copy --all ${@:4} docker://$resolved_name dir:./images/$output_dir
+  skopeo copy --all --preserve-digests ${@:4} docker://$resolved_name dir:./images/$output_dir
 done
 
 echo "## Pulling chart $1 ##"
